@@ -1,20 +1,49 @@
 import 'dart:convert';
+import 'dart:ui';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
-/// Hauptbildschirm der Wetter-App
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting('de_DE', null);
 
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+  ));
+  runApp(const WeatherApp());
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  // OpenWeatherMap API Key
-  final String apiKey = '711b0df3e461b3c35e8ca67b28920759';
+class WeatherApp extends StatelessWidget {
+  const WeatherApp({super.key});
 
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'iOS Style Weather',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        fontFamily: 'Constantia',
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.white),
+      ),
+      home: const WeatherHomePage(),
+    );
+  }
+}
+
+class WeatherHomePage extends StatefulWidget {
+  const WeatherHomePage({super.key});
+
+  @override
+  State<WeatherHomePage> createState() => _WeatherHomePageState();
+}
+
+class _WeatherHomePageState extends State<WeatherHomePage> {
   // Default location: Innsbruck, Tirol
   double latitude = 47.2692;
   double longitude = 11.4041;
@@ -37,7 +66,10 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  /// Geocoding API to get coordinates from city name
+  // OpenWeatherMap API Key
+  final String apiKey = '711b0df3e461b3c35e8ca67b28920759';
+
+  // Geocoding API to get coordinates from city name
   Future<void> searchCity(String cityName) async {
     if (cityName.trim().isEmpty) return;
 
@@ -187,6 +219,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // Helper to interpret OpenWeatherMap Weather condition IDs
+  // Reference: https://openweathermap.org/weather-conditions
   String getWeatherDescription(int id) {
     if (id >= 200 && id < 300) return 'Gewitter';
     if (id >= 300 && id < 400) return 'Nieselregen';
@@ -340,83 +373,86 @@ class _HomeScreenState extends State<HomeScreen> {
     showDialog(
       context: context,
       barrierColor: Colors.black.withOpacity(0.7),
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1C1C1E).withOpacity(0.95),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: const Text(
-          "Stadt suchen",
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-            letterSpacing: -0.5,
-          ),
-        ),
-        content: Container(
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: TextField(
-            controller: _searchController,
-            autofocus: true,
-            style: const TextStyle(color: Colors.white, fontSize: 16),
-            decoration: const InputDecoration(
-              hintText: "z.B. Wien, Berlin, Paris...",
-              hintStyle: TextStyle(color: Colors.white38),
-              border: InputBorder.none,
-              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              prefixIcon: Icon(Icons.location_on_rounded, color: Colors.white38),
-            ),
-            onSubmitted: (value) {
-              Navigator.pop(context);
-              searchCity(value);
-              _searchController.clear();
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _searchController.clear();
-            },
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            ),
-            child: const Text(
-              "Abbrechen",
-              style: TextStyle(color: Colors.white60, fontSize: 16),
+      builder: (context) => BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: AlertDialog(
+          backgroundColor: const Color(0xFF1C1C1E).withOpacity(0.95),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          title: const Text(
+            "Stadt suchen",
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.5,
             ),
           ),
-          Container(
+          content: Container(
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF4A90E2), Color(0xFF357ABD)],
-              ),
-              borderRadius: BorderRadius.circular(10),
+              color: Colors.white.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: TextButton(
+            child: TextField(
+              controller: _searchController,
+              autofocus: true,
+              style: const TextStyle(color: Colors.white, fontSize: 16),
+              decoration: const InputDecoration(
+                hintText: "z.B. Wien, Berlin, Paris...",
+                hintStyle: TextStyle(color: Colors.white38),
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                prefixIcon: Icon(Icons.location_on_rounded, color: Colors.white38),
+              ),
+              onSubmitted: (value) {
+                Navigator.pop(context);
+                searchCity(value);
+                _searchController.clear();
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
               onPressed: () {
                 Navigator.pop(context);
-                searchCity(_searchController.text);
                 _searchController.clear();
               },
               style: TextButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                backgroundColor: Colors.transparent,
               ),
               child: const Text(
-                "Suchen",
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
+                "Abbrechen",
+                style: TextStyle(color: Colors.white60, fontSize: 16),
+              ),
+            ),
+            Container(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF4A90E2), Color(0xFF357ABD)],
+                ),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  searchCity(_searchController.text);
+                  _searchController.clear();
+                },
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  backgroundColor: Colors.transparent,
+                ),
+                child: const Text(
+                  "Suchen",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
