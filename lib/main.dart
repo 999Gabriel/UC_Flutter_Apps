@@ -62,6 +62,9 @@ class _WeatherHomePageState extends State<WeatherHomePage> {
     super.dispose();
   }
 
+  // OpenWeatherMap API Key
+  final String apiKey = '711b0df3e461b3c35e8ca67b28920759';
+
   // Geocoding API to get coordinates from city name
   Future<void> searchCity(String cityName) async {
     if (cityName.trim().isEmpty) return;
@@ -73,33 +76,38 @@ class _WeatherHomePageState extends State<WeatherHomePage> {
 
     try {
       final url = Uri.parse(
-          'https://geocoding-api.open-meteo.com/v1/search?name=$cityName&count=1&language=de&format=json');
+          'https://api.openweathermap.org/geo/1.0/direct?q=$cityName&limit=1&appid=$apiKey');
 
+      print('Geocoding URL: $url');
       final response = await http.get(url);
+      print('Geocoding Response: ${response.statusCode} - ${response.body}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        if (data['results'] != null && data['results'].isNotEmpty) {
-          final result = data['results'][0];
+        if (data is List && data.isNotEmpty) {
+          final result = data[0];
           setState(() {
-            latitude = result['latitude'];
-            longitude = result['longitude'];
+            latitude = result['lat'];
+            longitude = result['lon'];
             this.cityName = result['name'];
           });
           await fetchWeatherData();
         } else {
+          print('No results found for city: $cityName');
           setState(() {
             hasError = true;
             isLoading = false;
           });
         }
       } else {
+        print('Geocoding API Error: ${response.statusCode}');
         setState(() {
           hasError = true;
           isLoading = false;
         });
       }
     } catch (e) {
+      print('Geocoding Exception: $e');
       setState(() {
         hasError = true;
         isLoading = false;
@@ -109,23 +117,45 @@ class _WeatherHomePageState extends State<WeatherHomePage> {
 
   Future<void> fetchWeatherData() async {
     try {
-      final url = Uri.parse(
-          'https://api.open-meteo.com/v1/forecast?latitude=$latitude&longitude=$longitude&current=temperature_2m,weather_code,wind_speed_10m&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto');
+      // Fetch current weather
+      final currentUrl = Uri.parse(
+          'https://api.openweathermap.org/data/2.5/weather?lat=$latitude&lon=$longitude&units=metric&lang=de&appid=$apiKey');
 
-      final response = await http.get(url);
+      // Fetch 5-day forecast (3-hour intervals)
+      final forecastUrl = Uri.parse(
+          'https://api.openweathermap.org/data/2.5/forecast?lat=$latitude&lon=$longitude&units=metric&lang=de&appid=$apiKey');
 
-      if (response.statusCode == 200) {
+      print('Current Weather URL: $currentUrl');
+      print('Forecast URL: $forecastUrl');
+
+      final currentResponse = await http.get(currentUrl);
+      final forecastResponse = await http.get(forecastUrl);
+
+      print('Current Response: ${currentResponse.statusCode}');
+      print('Forecast Response: ${forecastResponse.statusCode}');
+
+      if (currentResponse.statusCode == 200 && forecastResponse.statusCode == 200) {
+        final currentData = json.decode(currentResponse.body);
+        final forecastData = json.decode(forecastResponse.body);
+
+        // Convert to One Call API format for compatibility
+        final convertedData = _convertToOneCallFormat(currentData, forecastData);
+
         setState(() {
-          weatherData = json.decode(response.body);
+          weatherData = convertedData;
           isLoading = false;
         });
       } else {
+        print('Weather API Error: Current=${currentResponse.statusCode}, Forecast=${forecastResponse.statusCode}');
+        print('Current Body: ${currentResponse.body}');
+        print('Forecast Body: ${forecastResponse.body}');
         setState(() {
           hasError = true;
           isLoading = false;
         });
       }
     } catch (e) {
+      print('Weather API Exception: $e');
       setState(() {
         hasError = true;
         isLoading = false;
@@ -133,43 +163,84 @@ class _WeatherHomePageState extends State<WeatherHomePage> {
     }
   }
 
-  // Helper to interpret WMO Weather codes
-  // 0: Clear, 1-3: Cloudy, 45-48: Fog, 51-67: Rain/Drizzle, 71-77: Snow, 80-82: Showers, 95-99: Thunderstorm
-  String getWeatherDescription(int code) {
-    switch (code) {
-      case 0: return 'Klar';
-      case 1: return 'Überwiegend klar';
-      case 2: return 'Teils bewölkt';
-      case 3: return 'Bedeckt';
-      case 45: case 48: return 'Nebel';
-      case 51: case 53: case 55: return 'Nieselregen';
-      case 61: case 63: case 65: return 'Regen';
-      case 66: case 67: return 'Gefrierender Regen';
-      case 71: case 73: case 75: return 'Schnee';
-      case 77: return 'Schneegriesel';
-      case 80: case 81: case 82: return 'Regenschauer';
-      case 85: case 86: return 'Schneeschauer';
-      case 95: return 'Gewitter';
-      case 96: case 99: return 'Gewitter mit Hagel';
-      default: return 'Klar';
+  // Convert free API data to One Call API format
+  Map<String, dynamic> _convertToOneCallFormat(Map<String, dynamic> current, Map<String, dynamic> forecast) {
+    final forecastList = forecast['list'] as List;
+
+    // Group by day for daily forecast
+    final dailyMap = <String, Map<String, dynamic>>{};
+    final hourlyList = <Map<String, dynamic>>[];
+
+    for (var item in forecastList) {
+      final dt = item['dt'];
+      final date = DateTime.fromMillisecondsSinceEpoch(dt * 1000);
+      final dateKey = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
+      // Add to hourly (take first 24 hours = 8 items since they're 3-hour intervals)
+      if (hourlyList.length < 24) {
+        hourlyList.add({
+          'dt': dt,
+          'temp': item['main']['temp'],
+          'weather': item['weather'],
+        });
+      }
+
+      // Group for daily
+      if (!dailyMap.containsKey(dateKey)) {
+        dailyMap[dateKey] = {
+          'dt': dt,
+          'temp': {'min': item['main']['temp_min'], 'max': item['main']['temp_max']},
+          'weather': item['weather'],
+        };
+      } else {
+        // Update min/max temps
+        if (item['main']['temp_min'] < dailyMap[dateKey]!['temp']['min']) {
+          dailyMap[dateKey]!['temp']['min'] = item['main']['temp_min'];
+        }
+        if (item['main']['temp_max'] > dailyMap[dateKey]!['temp']['max']) {
+          dailyMap[dateKey]!['temp']['max'] = item['main']['temp_max'];
+        }
+      }
     }
+
+    return {
+      'current': {
+        'dt': current['dt'],
+        'temp': current['main']['temp'],
+        'weather': current['weather'],
+      },
+      'hourly': hourlyList,
+      'daily': dailyMap.values.toList(),
+    };
   }
 
-  IconData getWeatherIcon(int code) {
-    switch (code) {
-      case 0: return Icons.wb_sunny_rounded;
-      case 1: return Icons.wb_sunny_outlined;
-      case 2: return Icons.cloud_queue_rounded;
-      case 3: return Icons.cloud_rounded;
-      case 45: case 48: return Icons.blur_on;
-      case 51: case 53: case 55: return Icons.grain;
-      case 61: case 63: case 65: return Icons.water_drop;
-      case 66: case 67: return Icons.ac_unit;
-      case 71: case 73: case 75: return Icons.ac_unit;
-      case 80: case 81: case 82: return Icons.umbrella;
-      case 95: case 96: case 99: return Icons.flash_on;
-      default: return Icons.wb_sunny_rounded;
-    }
+  // Helper to interpret OpenWeatherMap Weather condition IDs
+  // Reference: https://openweathermap.org/weather-conditions
+  String getWeatherDescription(int id) {
+    if (id >= 200 && id < 300) return 'Gewitter';
+    if (id >= 300 && id < 400) return 'Nieselregen';
+    if (id >= 500 && id < 600) return 'Regen';
+    if (id >= 600 && id < 700) return 'Schnee';
+    if (id >= 700 && id < 800) return 'Nebel';
+    if (id == 800) return 'Klar';
+    if (id == 801) return 'Leicht bewölkt';
+    if (id == 802) return 'Teils bewölkt';
+    if (id == 803) return 'Überwiegend bewölkt';
+    if (id == 804) return 'Bedeckt';
+    return 'Klar';
+  }
+
+  IconData getWeatherIcon(int id) {
+    if (id >= 200 && id < 300) return Icons.flash_on;
+    if (id >= 300 && id < 400) return Icons.grain;
+    if (id >= 500 && id < 600) return Icons.water_drop;
+    if (id >= 600 && id < 700) return Icons.ac_unit;
+    if (id >= 700 && id < 800) return Icons.blur_on;
+    if (id == 800) return Icons.wb_sunny_rounded;
+    if (id == 801) return Icons.wb_sunny_outlined;
+    if (id == 802) return Icons.cloud_queue_rounded;
+    if (id >= 803) return Icons.cloud_rounded;
+    return Icons.wb_sunny_rounded;
   }
 
   @override
@@ -271,11 +342,12 @@ class _WeatherHomePageState extends State<WeatherHomePage> {
   Widget _buildModernLayout() {
     final current = weatherData!['current'];
     final daily = weatherData!['daily'];
-    final currentCode = current['weather_code'];
-    final currentTemp = current['temperature_2m'].round();
-    final description = getWeatherDescription(currentCode);
-    final highTemp = daily['temperature_2m_max'][0].round();
-    final lowTemp = daily['temperature_2m_min'][0].round();
+    final currentWeather = current['weather'][0];
+    final currentTemp = current['temp'].round();
+    final description = currentWeather['description'];
+    final weatherId = currentWeather['id'];
+    final highTemp = daily[0]['temp']['max'].round();
+    final lowTemp = daily[0]['temp']['min'].round();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -312,7 +384,7 @@ class _WeatherHomePageState extends State<WeatherHomePage> {
                       ),
                     ),
                     Icon(
-                      getWeatherIcon(currentCode),
+                      getWeatherIcon(weatherId),
                       size: 64,
                       color: Colors.orangeAccent,
                     ),
@@ -386,32 +458,16 @@ class _WeatherHomePageState extends State<WeatherHomePage> {
 
   Widget _buildHourlyItem(int index) {
     final hourly = weatherData!['hourly'];
-    final timeList = hourly['time'] as List;
-    final now = DateTime.now();
 
-    // Find the current hour in the list
-    int currentHourIndex = 0;
-    for (int i = 0; i < timeList.length; i++) {
-      final time = DateTime.parse(timeList[i]);
-      if (time.year == now.year &&
-          time.month == now.month &&
-          time.day == now.day &&
-          time.hour == now.hour) {
-        currentHourIndex = i;
-        break;
-      }
-    }
-
-    final targetIndex = currentHourIndex + index;
-
-    if (targetIndex < 0 || targetIndex >= timeList.length) {
+    if (index >= hourly.length) {
       return const SizedBox();
     }
 
-    final timeStr = timeList[targetIndex];
-    final temp = hourly['temperature_2m'][targetIndex];
-    final code = hourly['weather_code'][targetIndex];
-    final date = DateTime.parse(timeStr);
+    final hourData = hourly[index];
+    final timestamp = hourData['dt'];
+    final temp = hourData['temp'];
+    final weatherId = hourData['weather'][0]['id'];
+    final date = DateTime.fromMillisecondsSinceEpoch(timestamp * 1000);
 
     String hourLabel;
     if (index == 0) {
@@ -432,7 +488,7 @@ class _WeatherHomePageState extends State<WeatherHomePage> {
         children: [
           Text(hourLabel, style: const TextStyle(color: Colors.white70, fontSize: 14)),
           const SizedBox(height: 8),
-          Icon(getWeatherIcon(code), color: Colors.white, size: 28),
+          Icon(getWeatherIcon(weatherId), color: Colors.white, size: 28),
           const SizedBox(height: 8),
           Text("${temp.round()}°", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
         ],
@@ -442,11 +498,17 @@ class _WeatherHomePageState extends State<WeatherHomePage> {
 
   Widget _buildDailyItem(int index) {
     final daily = weatherData!['daily'];
-    final timeStr = daily['time'][index];
-    final minC = daily['temperature_2m_min'][index];
-    final maxC = daily['temperature_2m_max'][index];
-    final code = daily['weather_code'][index];
-    final date = DateTime.parse(timeStr);
+
+    if (index >= daily.length) {
+      return const SizedBox();
+    }
+
+    final dayData = daily[index];
+    final timestamp = dayData['dt'];
+    final minC = dayData['temp']['min'];
+    final maxC = dayData['temp']['max'];
+    final weatherId = dayData['weather'][0]['id'];
+    final date = DateTime.fromMillisecondsSinceEpoch(timestamp * 1000);
 
     // German day names
     String dayLabel;
@@ -471,7 +533,7 @@ class _WeatherHomePageState extends State<WeatherHomePage> {
             flex: 2,
             child: Text(dayLabel, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
           ),
-          Icon(getWeatherIcon(code), color: Colors.blueAccent, size: 24),
+          Icon(getWeatherIcon(weatherId), color: Colors.blueAccent, size: 24),
           Expanded(
             flex: 2,
             child: Text(
