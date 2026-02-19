@@ -20,7 +20,7 @@ class WeatherApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
-        fontFamily: 'Constantia',
+        fontFamily: 'Times New Roman',
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.white),
       ),
       home: const HomeScreen(),

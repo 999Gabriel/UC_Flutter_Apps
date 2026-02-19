@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'favorites_screen.dart';
 
 /// Hauptbildschirm der Wetter-App
 class HomeScreen extends StatefulWidget {
@@ -25,9 +27,13 @@ class _HomeScreenState extends State<HomeScreen> {
   bool hasError = false;
   final TextEditingController _searchController = TextEditingController();
 
+  // Favoritenliste
+  List<String> favorites = [];
+
   @override
   void initState() {
     super.initState();
+    _loadFavorites();
     fetchWeatherData();
   }
 
@@ -36,6 +42,43 @@ class _HomeScreenState extends State<HomeScreen> {
     _searchController.dispose();
     super.dispose();
   }
+
+  /// Favoriten aus SharedPreferences laden
+  Future<void> _loadFavorites() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      favorites = prefs.getStringList('favorites') ?? [];
+    });
+  }
+
+  /// Favoriten in SharedPreferences speichern
+  Future<void> _saveFavorites() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('favorites', favorites);
+  }
+
+  /// Stadt zu Favoriten hinzufügen oder entfernen
+  void _toggleFavorite() {
+    setState(() {
+      if (favorites.contains(cityName)) {
+        favorites.remove(cityName);
+      } else {
+        favorites.add(cityName);
+      }
+    });
+    _saveFavorites();
+  }
+
+  /// Stadt aus Favoriten entfernen (Callback für FavoritesScreen)
+  void _removeFavorite(String city) {
+    setState(() {
+      favorites.remove(city);
+    });
+    _saveFavorites();
+  }
+
+  /// Prüfen ob aktuelle Stadt ein Favorit ist
+  bool get isFavorite => favorites.contains(cityName);
 
   /// Geocoding API to get coordinates from city name
   Future<void> searchCity(String cityName) async {
@@ -233,6 +276,53 @@ class _HomeScreenState extends State<HomeScreen> {
         elevation: 0,
         foregroundColor: Colors.white,
         actions: [
+          // Favoriten-Liste öffnen
+          Container(
+            margin: const EdgeInsets.only(right: 4),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: IconButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => FavoritesScreen(
+                      favorites: favorites,
+                      onCitySelected: (city) {
+                        searchCity(city);
+                      },
+                      onCityRemoved: _removeFavorite,
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.list_rounded, size: 22),
+              padding: const EdgeInsets.all(8),
+              constraints: const BoxConstraints(),
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Herz-Button zum Favorisieren
+          Container(
+            margin: const EdgeInsets.only(right: 4),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: IconButton(
+              onPressed: _toggleFavorite,
+              icon: Icon(
+                isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                size: 22,
+                color: isFavorite ? Colors.redAccent : Colors.white,
+              ),
+              padding: const EdgeInsets.all(8),
+              constraints: const BoxConstraints(),
+            ),
+          ),
+          const SizedBox(width: 8),
           Container(
             margin: const EdgeInsets.only(right: 4),
             decoration: BoxDecoration(
