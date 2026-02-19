@@ -1,9 +1,12 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'favorites_screen.dart';
+
+// api key from .env file
 
 /// Hauptbildschirm der Wetter-App
 class HomeScreen extends StatefulWidget {
@@ -14,8 +17,9 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // OpenWeatherMap API Key
-  final String apiKey = '711b0df3e461b3c35e8ca67b28920759';
+  // OpenWeatherMap API Key (aus .env Datei geladen)
+  // replace with .env file in production
+  final String apiKey = dotenv.env['OPENMETEOKEY'] ?? '';
 
   // Default location: Innsbruck, Tirol
   double latitude = 47.2692;
